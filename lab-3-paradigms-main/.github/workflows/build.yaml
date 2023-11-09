@@ -1,0 +1,44 @@
+# A basic workflow to run the testthat tests
+
+name: Run tests
+
+# Controls when the action will run
+on: [push, pull_request, workflow_dispatch]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  tests:
+    # The type of runner that the job will run on
+    runs-on: macos-12
+    
+    # Steps are the tasks that the job will execute
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+      # Setup R and dependencies
+      - uses: r-lib/actions/setup-r@v2
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: kjhealy/gssr
+
+      # # Cache dependencies
+      # # NB path depends on runner
+      # - name: Cache R packages
+      #   uses: actions/cache@v3.0.5
+      #   env:
+      #     cache-name: cache-packages
+      #   with:
+      #     path: /Users/runner/Library/R/x86_64/4.2/library
+      #     key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('DESCRIPTION') }}
+      #     
+      # # Install dependencies from DESCRIPTION
+      # - name: Install dependencies
+      #   run: |
+      #     Rscript -e "dir.create(Sys.getenv('R_LIBS_USER'), recursive = TRUE)"
+      #     Rscript -e "install.packages('remotes', repos = 'http://cran.us.r-project.org')"
+      #     Rscript -e "remotes::install_deps(dependencies = TRUE)"
+      
+      # Run the tests
+      - name: Run tests
+        run: Rscript -e "testthat::test_dir('tests', stop_on_failure = TRUE)"
+

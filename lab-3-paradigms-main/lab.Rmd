@@ -1,0 +1,417 @@
+---
+title: "Data Science Methods, Lab 3: Functional Programming"
+author: "Rebecca Sullivan"
+output: 
+    html_document:
+        toc: true
+---
+
+# Introduction #
+
+In this lab, we'll be using data from the [General Social Survey](https://en.wikipedia.org/wiki/General_Social_Survey) to address two research questions:  *In the US, how has trust in the scientific community, educational institutions, and Congress changed over time?  Does the direction of these trends depend on political ideology?*  Along the way, we'll practice using tidyverse tools for data wrangling, write an analysis function using a technique called *abstraction*, practice writing code that respects some key features of functional programming, and reshape data to accommodate `ggplot2`'s assumptions.  
+
+
+# The General Social Survey #
+
+The General Social Survey (GSS) is a large social scientific survey of US adults that's been conducted every year or two since 1972.  The GSS uses a [complex survey design](https://r-survey.r-forge.r-project.org/survey/), meaning that respondents have different probabilities of being included in the sample.  When analyzed correctly, this allows the GSS to produce unbiased estimates for small subpopulations without requiring a very large (and super expensive) sample.  Because the point of this lab is to learn some things about R, not some things about analyzing complex surveys, we're going to ignore this issue.  **Consequently, the estimates we get here will be somewhat biased.** 
+
+One longstanding set of GSS questions runs as follows: 
+
+> I am going to name some institutions in this country. As far as the people running these institutions are concerned, would you say you have a great deal of confidence, only some confidence, or hardly any confidence at all in them? 
+
+We'll look at responses for education, the scientific community, and Congress. In particular, since the mid-1990s, a common social narrative holds that political conservatives in the US have become "anti-science."  We can use the "confidence in institution" questions to look at whether conservative confidence in the scientific community has dropped over time, and compare it to confidence in education and Congress. 
+
+# Form expectations #
+
+Our two research questions are listed below.  With the features of GSS in mind, take a few minutes to think through each question and formulate some expectations about what we might see in our analysis. Write a few sentences about your expectations underneath each question. 
+
+1. In the US, how has trust in the scientific community, educational institutions, and Congress changed over time?  
+#Trust has seemed to grow a great divide among groups in the scientific community, educational institutions, and Congress over time. This seems to stem, in regard to all three, from incomplete descriptions, false reporting (advertently and inadvertently), coercion, and in some cases, extortion.This may be the case due to how many individuals want their ideas to be seen as "correct," whereas the idea may or may not truly be the case. This can be put in simple terms as a power struggle.
+
+
+
+2. Does the direction of these trends depend on political ideology?
+#It seems as though these trends to have a correlation to political ideology, but may not be the root of the issue; beliefs, whether they be social, political, or individual seem to be at the core.
+
+
+
+# Setup #
+
+**Important:** Add all dependencies in `DESCRIPTION`
+
+This is the first lab that uses external packages (dependencies).  When GitHub runs the automatic checks for your PR, it needs to know what packages to install.  It does this by consulting the `DESCRIPTION` file.  So, any packages that you load in your script have to be added to `DESCRIPTION`. In particular, add them to the list under `Imports:`, separating them with commas, and (by convention) putting one on each line.
+
+For this lab, we're going to be using various tools from the `tidyverse` suite, along with the `gssr` package, which makes it simple to access GSS data from R. If you don't have it installed (which you probably don't), you'll need to run the next chunk to install it from GitHub. (The line `#| eval: false` is called a *chunk option*, and it tells RMarkdown not to run this chunk.) 
+
+```{r install_gssr}
+#| eval: false
+remotes::install_github("kjhealy/gssr")
+```
+
+```{r setup}
+library(tidyverse)
+library(gssr)
+
+## NB Loading the GSS data takes a moment
+data(gss_all)
+```
+
+# Pipes #
+
+Throughout this lab, we'll be writing pipes (a series of function calls, connected using the base R pipe `|>` or `magrittr` pipe `%>%`) using functions from the `dplyr` package: `select()`, `filter()`, `mutate()`, and later `group_by()` and `count()`.  If you're not comfortable just diving in to using these functions, check out [the Data Carpentry lesson on `dplyr` and `tidyr`](https://datacarpentry.org/r-socialsci/03-dplyr-tidyr/index.html) (data for the lesson [here](https://datacarpentry.org/r-socialsci/00-intro/index.html#downloading-the-data-and-getting-set-up)). 
+
+
+# Problem 1: Loading the data #
+----
+The `setup` chunk will load `gss_all` into your environment.  From there you can check the number of columns — it's much larger than the 6 we're interested in here:  
+
+- respondent ID number
+- GSS year
+- whether the respondent thinks of themselves as liberal or conservative
+- confidence in the scientific community
+- confidence in education
+- confidence in Congress
+
+1. Using the [GSS Data Explorer](https://gssdataexplorer.norc.org/variables/vfilter) and the descriptions above, find the column names for each of our 6 variables of interest.  Use these to define `vars_of_interest`, a character vector containing the column names.
+----
+```
+ vars_of_interest <- (C('year', 'id', 'polviews', 'consci', 'coneduc', 'conlegis'))
+```
+
+Not all GSS questions are asked each year.  We need to see which years have all of our variables of interest.  
+
+2. Read the docs for `gss_which_years()`.
+----
+    - Use this function to generate a table showing which years do/don't include our variables of interest.\
+    (Hint: You can't pass `vars_of_interest` directly to `variable`.  Check the docs for `all_of()`.) 
+    - Pipe the output of `gss_which_years()` to `filter()` to show only the years where at least one variable is missing.\
+    (Hint: There are a few ways to do this.  For the simplest approach, write a conditional for each variable and link them together with `|`.  An alternative approach might use `if_any()`.) 
+
+```
+gss_which_years(gss_all, vars_of_interest) %>% filter(id == FALSE | polviews == FALSE | consci == FALSE | coneduc == FALSE | conlegis == FALSE)
+
+```
+
+3. Which years should we exclude to ensure we have all of our variables of interest? 
+----
+*When you answer written questions like this one, please put your answer in italics so it's visually distinct from the question in the knitted HTML file.* 
+
+*1972, 1973, and 1985*
+
+4. In the chunk below, write a pipe that starts with `gss_all` and uses `select()` to include only our variables of interest.  You'll be coming back up and extending this pipe.  
+----
+```
+gss_all %>% select(vars_of_interest)
+
+```
+
+5. Use `filter()` to include only the years when we have data for all of our variables. 
+----
+exclude_yrs <- c(1972, 1973, 1985)
+filter(!year %in% exclude_yrs)
+
+6. Read the docs for `across()`. Using this function and `mutate()`, apply `as_factor()` to all of the variables that start with `'con'`.  You'll be adding more steps within this `mutate()` call in the next two steps. 
+7. Apply `as_factor()` to the political ideology variable.
+8. Read the docs for `fct_collapse()`. Use this function to simplify the political ideology variable.  It should have three values: `liberal`, `moderate`, and `conservative`. #*(polviews_factor)*
+#6-8, Vars of interest factor
+----
+vars_of_interest_factor <- vars_of_interest %>% mutate(across(c('consci', 'coneduc', 'conlegis'), as_factor))
+        fct_collapse(Dataf$polviews,
+            liberal = c('extremely liberal', 'liberal', 'slightly liberal')
+            moderate = c('moderate', 'middle of the road')
+            conservative = c('extremely conservative', 'conservative', 'slightly conservative'))
+
+9. With your pipe complete, assign the result to `dataf`. #? 
+
+dataf <- vars_of_interest_factor
+
+10. Explain what the functional concept of immutability has to do with the way we carried out these cleaning steps.  In particular, why did we use one big pipe instead of doing a separate assignment for each step? 
+#These cleaning steps allow to stop the function from getting changed after initiation. Using one big pipe, instead of separate, allows us to consolidate changes from the assignment, which in turn decreases processing time.
+
+11. In the chunk below, write one line of code that reports the length (n, number of observations/rows) in the dataset. 
+
+```
+nrow(dataf)
+
+```
+
+# Problem 2: Calculating rates #
+
+So we now have about 64k individual responses: we know people's political views, their confidence in various institutions, and the year they were asked about both.  The confidence variables are [ordinal](https://en.wikipedia.org/wiki/Ordinal_data): "a great deal" of confidence is more than "only some," which in turn is more than "hardly any." But there's no sense of distance between these values (*how much* more is "a great deal" than "only some"?), so we can't use summary statistics like taking the mean.  To analyze the confidence variables, we'll look at the rate or share of respondents who expressed "a great deal" of confidence.  
+
+We want to do this for all of the `con*` variables.  We'll first write a function that does this for one given variable, then apply that function to each of the variables.  
+
+1. Our function is based on a convenient aspect of the way R handles Boolean (true/false) values.  Using the information in `?logical`, explain why the following line of code produces the output that it does. 
+
+```
+mean(c(TRUE, TRUE, TRUE, FALSE))
+```
+#This is an output of 0.75 because items(T=1/F=0) within are set as integers. In this context, the mean of 1+1+1+0 = 0.75. 
+
+
+2. Next, modify the line below so that the function returns 1.5.  
+
+```{r}
+mean(c(1, 2, 1.5))
+```
+
+3. Explain why this line of code is producing the output that it does. 
+
+```{r}
+head(dataf$consci == 'a great deal')
+```
+#This line of code is producing this output because they are using the data in a column with consci. The result is the response of 'a great deal' in regard to T/F.
+
+4. Putting these together, write a line of code that calculates the rate or share of responses with "a great deal of confidence" in the scientific community.  Assign the result to `prob2.4`. 
+
+```{r}
+ prob2.4 <- mean(!is.na(head(dataf$consci == 'a great deal')))
+```
+
+5. Take a look at the function template below. The `#'` comments are used by the `roxygen2` package to automatically create appropriately-formated R documentation.  Using what you've worked out in the previous steps, fill in the template.  The software engineering practice of generalizing from code that solves a particular case (calculating the rate for a given variable) to a reusable function is called *abstraction*.  
+
+```{r}
+#' Calculates the rate of "a great deal of confidence"
+#' 
+#' @param con A vector of GSS confidence question responses
+#' @details Missing values are automatically ignored
+#' @returns A length-one vector with the rate of responses equal to "a great deal." 
+get_rate <- function(con, na.rm = TRUE) {
+    rate <- mean(con == 'a great deal', na.rm = na.rm)
+    return(rate)
+    get_rate(dataf$coneduc, na.rm = FALSE)
+}
+```
+
+6. For the sake of the example, let's take abstraction one step further. The initial version of the function assumes that we want to exclude missing values.   But sometimes we might want to do something different.  Read through [this example](https://rpubs.com/Mentors_Ubiqum/default_value_function), then add an argument `na.rm` to `get_rate()`.  This argument should have the default value `TRUE`, and pass it to the `na.rm` argument of `mean()`.  Replace the `@details` line in the function documentation with a `@param` line for `na.rm`. 
+
+rate <- mean(con=='a great deal', na.rm=na.rm)
+return(rate)
+
+7. Test your function on the `consci` column of `dataf`, once with `na.rm = TRUE` and the second time with `na.rm = FALSE`. 
+
+```{r}
+get_rate(dataf$consci, na.rm = FALSE)
+get_rate(dataf$consci, na.rm = TRUE)
+
+```
+# Problem 3: Split-apply-combine #
+
+*Split-apply-combine* is an analytical approach originally developed for use with large databases.  The idea is that we *split* the database into multiple pieces, *apply* an analysis function to each piece, and *combine* the results.  In tidyverse R, we can use split-apply-combine on data frames using the functions `group_by()`, `summarize()`, and `ungroup()`.  We'll write a pipe to do this for `consci` by itself first, then modify the `summarize()`/apply step to cover all of our "confidence" variables. 
+
+1. In the chunk below, write a pipe that 
+    - starts with our analysis data frame, 
+    - groups by year and political ideology, 
+    - applies `get_rate()` to `consci` using `summarize()`, and
+    - uses `ungroup()` to remove the grouping structure. 
+
+```{r}
+dataf %>% group_by(year, polviews) %>%
+    summarize(get_rate(consci)) %>%
+    ungroup(year, polviews)
+
+```
+
+2. We don't care about respondents who didn't indicate their political ideology.  Modify the pipe, adding a `filter()` step to exclude these respondents before we calculate the rates. 
+
+dataf %>% group_by(year, polviews) %>%
+    filter(!is.na(polviews)) %>%
+    summarize(get_rate(consci)) %>%
+    ungroup(year, polviews)
+
+3. To extend this to the other confidence variables, we'll use `across()`.  When used inside `mutate()` or `summarize()`, `across()` lets us apply one or more functions to one or more variables, and also lets us pick out the variables in more flexible ways than listing them out.  We'll start by rewriting what we've done so far to produce the same outcome in a way that's easier to generalize. 
+
+    Look through the docs for `across()`, especially how the `.cols` and `.fns` arguments are used.  Go back up and modify the arguments to `summarize()`, using `across()` to apply `get_rate()` to just `consci`.  In the space below, explain why `across()` is a *functional* and requires *first-class functions*. 
+
+rate_df <- dataf %>% group_by(year, polviews) %>%
+    filter(!is.na(polviews)) %>%
+    summarize(across(starts_with('con'), get_rate)) %>%
+    ungroup()
+    
+rate_df
+
+4. Now we'll generalize to all the "confidence" columns.  Replace the value you passed to `.cols` with `starts_with("con")`.  Assign the pipe output to `rate_df`.  In the space below, explain why *immutability* means that we shouldn't assign the output to `dataf`.  
+#Immutability  is kept safe when the output is not assigned to dataf. Protecting the original data set will allow future scientists who are interested in teh data set to see it, unedited. This also prevents problems with reproducibility. These problems can be circumvented by using the pipe operator %>% to make a new dataframe (rate_df) of the changes rather than overwriting the original. 
+
+# Problem 4: Reshaping for ggplot #
+
+In case you need a quick refresher on `ggplot2`, here's a line plot with the data for confidence in education.  (It's commented out so that it doesn't generate errors before you finish problem 3.  Uncomment it.) 
+
+```{r}
+ ggplot(rate_df, aes(year, coneduc, color = polviews)) +
+     geom_line() +
+     scale_color_manual(name = 'political\nideology', 
+                        values = c('blue', 'purple', 'red')) +
+     scale_y_continuous(labels = scales::percent_format(), 
+                        name = 'education\n"a great deal" of confidence') +
+     theme_bw()
+```
+
+We'd like to construct a version of this plot with a separate [facet](https://datacarpentry.org/R-ecology-lesson/04-visualization-ggplot2.html#faceting) or panel for each type of institution.  But this requires representing institution as a single variable (with values for education, Congress, and science), rather than three different variables. 
+
+1. In tidyverse jargon, we need to **lengthen** our dataframe.  Consider just the data for 1974 and 1975.  It contains 18 pieces of data, one for each year-ideology-institution combination.  Write a pipe that uses `filter()` to get just these data from `rate_df`.  
+
+```{r}
+filter(rate_df, year %in% c(1974, 1975))
+```
+
+2. We'll use the function `pivot_wider()` to rearrange these 18 pieces of data, putting each one on its own row.  The three "confidence" columns are replaced with two columns: one indicating the institution, and the other with the rate value for the year-ideology-institution combination. In the cell below, rewrite your pipe from step 1, piping the result into the `pivot_longer()` call. \
+   (Tip: Select some code and hit Command/Control + I and RStudio will automatically adjust the indentation.) 
+
+```{r}
+pivot_longer(cols = starts_with('con'), 
+             names_to = 'institution', 
+             values_to = 'rate')
+```
+
+3. Review the docs for `pivot_longer()` and explain what the arguments `cols`, `names_to`, and `values_to` each do.  
+#cols = columns
+#names_to = rearranges cols into 1 column named names_to
+#values_to = all values selected into a new column; contains info from original column data and brings data moved to names_to into this new column 
+
+4. Again, we need to reshape the dataframe for `ggplot2`, with institution represented by a single variable rather than three different variables.  We've seen how `pivot_longer()` does this; we just need to drop the filter step to include all years of data.  In the chunk below, write the pipe to do this.  
+    - Since institution type is now a single character/string variable, we can give it more human-meaningful names.  Modify the pipe, using `fct_recode()` to rename the institution types "education," "Congress," and "science." 
+    - Assign the result to `rate_long_df`.  This name is itself a little long, but we don't need to retype it much and it tells us exactly where it came from. 
+
+```{r}
+rate_long_df <- rate_df %>% pivot_longer(cols = starts_with('con'),
+    names_to = 'institution',
+    values_to = 'rate') %>%
+mutate(institution = fct_recode(institution,
+                                science = "consci",
+                                legislation = "conlegis",
+                                education = "coneduc"
+                                ))
+rate_long_df
+```
+# Problem 5: Plotting with facets #
+
+1. In the chunk below, uncomment and modify the example plot using [facets](https://datacarpentry.org/R-ecology-lesson/04-visualization-ggplot2.html#faceting) and the long-format dataframe `rate_long_df` to show all three institutions at once. 
+
+```{r}
+ggplot(rate_df, aes(year, rate, color = polviews)) +
+    geom_line() +
+    scale_color_manual(name = 'political ideology', 
+                       values = c('blue', 'purple', 'red')) +
+    scale_y_continuous(labels = scales::percent_format(), 
+                       name = 'rate') +
+    facet_wrap(~ institution, scales = "free_y", ncol = 3)
+    theme_bw()
+```
+
+
+2. In the US, how has trust in the scientific community, educational institutions, and Congress changed over time?  
+    #Trust in science across political parties has changed dramatically, but not as significantly for legislation and educational institutions. This is described below.
+
+3. Does the direction of these trends depend on political ideology? 
+    #Yes - these trends do support that it depends on political ideology. In regard to science, as it is the most dramatic, conservatives' confidence dropped significantly, while liberals' confidence increased. This divide is clear.
+    
+4. How do your answers to the last two questions compare to your expectations? 
+    #This is along the lines of my expectations, but I was anticipating that it was not only in regard to political affiliation. I was expecting more of a difference in education and legislation. I think this could be investigated more.
+
+# Problem 6: Extension
+
+As sometimes happens, while working on this analysis we might decide to expand our scope, looking at some additional institutions.  Maybe this is a check on the preliminary findings from the previous question.  In this final problem, we'll see how our functional approach to our analysis script makes it easy to extend the analysis.  In more complex projects, this might meant that some core parts of our analysis code could be bundled together into a custom package and reused in other projects.  
+
+1. [GSS](https://gssdataexplorer.norc.org/variables/vfilter) includes a number of other "confidence in institution" questions.  Pick 3 more institutions of interest.  In the space below, note the institution type, its GSS variable, and what you expect to see when you look at its trend over time.  
+    - Confidence in press - conpress
+        Expect: decrease from conservatives and liberals
+    - Confidence in medicine - conmedic
+        Expect: decrease from conservatives, increase from liberals
+    - Confidence in military - conarmy
+        Expect: same from conservatives (already high), decrease from liberals
+
+2. Modify the script above to include these added institutions.  Keep track of the changes you make in a separate text file, then paste that in the space below. 
+
+library(tidyverse)
+library(gssr)
+
+## NB Loading the GSS data takes a moment
+data(gss_all)
+
+vars_of_interest <- (C('year', 'id', 'polviews', 'conpress', 'conmedic', 'conarmy'))
+
+gss_which_years(gss_all, vars_of_interest) %>% filter(id == FALSE | polviews == FALSE | conpress == FALSE | conmedic == FALSE | conarmy == FALSE)
+gss_all %>% select(vars_of_interest)
+
+exclude_yrs <- c(1972, 1973, 1985)
+filter(!year %in% exclude_yrs)
+
+vars_of_interest_factor <- vars_of_interest %>% mutate(across(c('conpress', 'conmedic', 'conarmy'), as_factor))
+        fct_collapse(Dataf$polviews,
+            liberal = c('extremely liberal', 'liberal', 'slightly liberal')
+            moderate = c('moderate', 'middle of the road')
+            conservative = c('extremely conservative', 'conservative', 'slightly conservative'))
+
+nrow(dataf)
+
+#' Calculates the rate of "a great deal of confidence"
+#' 
+#' @param con A vector of GSS confidence question responses
+#' @details Missing values are automatically ignored
+#' @returns A length-one vector with the rate of responses equal to "a great deal." 
+get_rate <- function(con, na.rm = TRUE) {
+    rate <- mean(con == 'a great deal', na.rm = na.rm)
+    return(rate)
+    get_rate(dataf$coneduc, na.rm = FALSE)
+}
+
+rate <- mean(con=='a great deal', na.rm=na.rm)
+return(rate)
+
+get_rate(dataf$conpress, na.rm = FALSE)
+get_rate(dataf$conpress, na.rm = TRUE)
+
+get_rate(dataf$conmedic, na.rm = FALSE)
+get_rate(dataf$conmedic, na.rm = TRUE)
+
+get_rate(dataf$conarmy, na.rm = FALSE)
+get_rate(dataf$conarmy, na.rm = TRUE)
+
+dataf %>% group_by(year, polviews) %>%
+    summarize(get_rate(conpress)) %>%
+    ungroup(year, polviews)
+
+dataf %>% group_by(year, polviews) %>%
+    filter(!is.na(polviews)) %>%
+    summarize(get_rate(conpress)) %>%
+    ungroup(year, polviews)
+
+rate_df <- dataf %>% group_by(year, polviews) %>%
+    filter(!is.na(polviews)) %>%
+    summarize(across(starts_with('con'), get_rate)) %>%
+    ungroup()
+rate_df
+
+ ggplot(rate_df, aes(year, conpress, color = polviews)) +
+     geom_line() +
+     scale_color_manual(name = 'political\nideology', 
+                        values = c('blue', 'purple', 'red')) +
+     scale_y_continuous(labels = scales::percent_format(), 
+                        name = 'press\n"a great deal" of confidence') +
+     theme_bw()
+
+filter(rate_df, year %in% c(1974, 1975))
+
+pivot_longer(cols = starts_with('con'), 
+             names_to = 'institution', 
+             values_to = 'rate')
+
+rate_long_df <- rate_df %>% pivot_longer(cols = starts_with('con'),
+    names_to = 'institution',
+    values_to = 'rate') %>%
+mutate(institution = fct_recode(institution,
+                                press = "conpress",
+                                medicine = "conmedic",
+                                military = "conarmy"
+                                ))
+rate_long_df
+
+ggplot(rate_df, aes(year, rate, color = polviews)) +
+    geom_line() +
+    scale_color_manual(name = 'political ideology', 
+                       values = c('blue', 'purple', 'red')) +
+    scale_y_continuous(labels = scales::percent_format(), 
+                       name = 'rate') +
+    facet_wrap(~ institution, scales = "free_y", ncol = 3)
+    theme_bw()
